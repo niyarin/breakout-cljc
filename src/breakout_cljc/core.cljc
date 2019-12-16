@@ -3,6 +3,8 @@
             ;[breakout-cljc.move :as move]
             [play-cljc.gl.core :as c]
             [play-cljc.gl.entities-2d :as e]
+            [play-cljc.text :as text]
+            [play-cljc.gl.text :as gl-text]
             [play-cljc.transforms :as t]
             [play-cljc.primitives-2d :as p2d]
             #?(:clj  [play-cljc.macros-java :refer [gl math]]
@@ -44,6 +46,14 @@
                  (t/color [1 1 1 1]))]
      (swap! *state assoc :ball-entity ball))
 
+
+  (let [font (text/->baked-font "ttf/m.ttf" 20 (text/->bitmap 512 512))
+        font-entity (gl-text/->font-entity game "TEST" font)
+        ;text-entity (c/compile game (gl-text/->text-entity game font "HELLO" ))
+        ]
+        
+        ;(swap! *state assoc :ball-entity ball))
+     )
 
   (let [paddle-entity
         (-> (c/compile game (e/->entity game p2d/rect))
@@ -162,9 +172,8 @@
                 block-width
                 block-height
                 ball-entity
+                ;text-entity
                 direction
-                player-images
-                player-image-key
                 block-entities]
          :as state} @*state
         game-width (utils/get-width game)
@@ -199,6 +208,8 @@
                    (t/translate (:x ball-entity) (:y ball-entity))
                    (t/scale (:r ball-entity) (:r ball-entity))))
 
+          ;(c/render game
+               ;text-entity)
           (swap! *state
               (fn [state]
                  (-> state
