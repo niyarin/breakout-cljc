@@ -1,6 +1,5 @@
 (ns breakout-cljc.core
   (:require [breakout-cljc.utils :as utils]
-            ;[breakout-cljc.move :as move]
             [play-cljc.gl.core :as c]
             [play-cljc.gl.entities-2d :as e]
             [play-cljc.text :as text]
@@ -15,13 +14,26 @@
                        :paddle-y 320
                        :block-width 40
                        :block-height 10
-                       :pressed-keys #{}
-                       :x-velocity 0
-                       :y-velocity 0
-                       :can-jump? false
-                       :direction :right
-                       :player-images {}
-                       :player-image-key :walk1}))
+                       :gameover false
+                       :point 0
+                       :pressed-keys #{}}))
+
+(defmacro load-font-cljs [game bitmap]
+   (let [{:keys [width height] :as bitmap'} bitmap]
+      `(let [image# (js/Image. ~width ~height)]
+         (doto image#
+            (-> .-src (set! ~(text/bitmap->data-uri bitmap')))
+            (-> .-onload (set! #({:bitmap {:data image# :width ~width :height ~height} :font ~(text/->baked-font "ttf/Roboto-Regular" 32 bitmap)})))))))
+
+(defn load-font-clj [game bitmap]
+   {:bitmap bitmap
+     :font (text/->baked-font "ttf/Roboto-Regular.ttf" 32 bitmap)})
+
+(defn load-font [game]
+   (let [bitmap (text/->bitmap 512 512)] 
+      #?(:clj (load-font-clj game bitmap)
+         :cljs (load-font-cljs  game bitmap))))
+
 
 (defn init [game]
   ;; allow transparency in images
@@ -47,13 +59,19 @@
      (swap! *state assoc :ball-entity ball))
 
 
-  (let [font (text/->baked-font "ttf/m.ttf" 20 (text/->bitmap 512 512))
-        font-entity (gl-text/->font-entity game "TEST" font)
-        ;text-entity (c/compile game (gl-text/->text-entity game font "HELLO" ))
-        ]
-        
-        ;(swap! *state assoc :ball-entity ball))
-     )
+  (let [{:keys [font bitmap]} (load-font game)
+        font-entity 
+        (->> (gl-text/->font-entity game (:data bitmap) font)
+             (c/compile game))
+        point-entity
+           (->> (gl-text/->text-entity game font-entity "0")
+                (c/compile game))
+        gameover-entity
+           (->> (gl-text/->text-entity game font-entity "Game Over")
+                     (c/compile game)) ]
+        (swap! *state assoc :point-entity point-entity)
+        (swap! *state assoc :gameover-entity gameover-entity)
+        (swap! *state assoc :font-entity font-entity))
 
   (let [paddle-entity
         (-> (c/compile game (e/->entity game p2d/rect))
@@ -64,7 +82,7 @@
 
 (def screen-entity
   {:viewport {:x 0 :y 0 :width 0 :height 0}
-   :clear {:color [ 0 0 0 1] :depth 1}})
+   :clear {:color [ 0.3 0.3 0.3 1] :depth 1}})
 
 
 (defn update-ball [state]
@@ -169,10 +187,15 @@
                 mouse-x
                 paddle-entity
                 paddle-y
+                point-entity
+                font-entity
+                text-entity
+                point
+                gameover
+                gameover-entity
                 block-width
                 block-height
                 ball-entity
-                ;text-entity
                 direction
                 block-entities]
          :as state} @*state
@@ -187,29 +210,24 @@
       (c/render game (update screen-entity :viewport
                              assoc :width game-width :height game-height))
       
-       (doseq [block-entity block-entities]
-          (when (:alive block-entity)
-             (c/render game 
-                    (->
-                (t/translate  (t/project  block-entity game-width game-height)
-                             (:px block-entity) (:py block-entity))
-                   (t/scale 40 10)))))
-
-          (c/render game
+      (when (not gameover)
+         (doseq [block-entity block-entities]
+             (when (:alive block-entity)
+                (c/render game 
+                       (-> (t/translate  
+                              (t/project  block-entity game-width game-height)
+                              (:px block-entity) (:py block-entity))
+                           (t/scale 40 10)))))
+         (c/render game
                  (-> (t/project paddle-entity game-width game-height)
                       (t/translate 
                          paddle-x
                          paddle-y)
-                      (t/scale (:width paddle-entity) 10)
-                      ) )
-
-          (c/render game
+                      (t/scale (:width paddle-entity) 10)))
+         (c/render game
                (-> (t/project ball-entity game-width game-height)
                    (t/translate (:x ball-entity) (:y ball-entity))
                    (t/scale (:r ball-entity) (:r ball-entity))))
-
-          ;(c/render game
-               ;text-entity)
           (swap! *state
               (fn [state]
                  (-> state
@@ -221,22 +239,25 @@
                                        (:width paddle-entity) 
                                        (:height paddle-entity)))))
          
-          (let [point 
-                (* (count (filter #(not (:alive %)) block-entities))
-                   100)]
-             (clojure.pprint/pprint point))
-
-
-          ;; change the state to move the player
-          '(swap! *state
-            (fn [state]
-              (->> (assoc state
-                          :player-width player-width
-                          :player-height player-height)
-                   (move/prevent-move game)
-                   (move/animate game)
-                   (move/move game)
-                   )))
-          ))
+          (let [point' (* (count (filter #(not (:alive %)) block-entities)) 
+                          100)]
+               (when (not= point point')
+                  (swap! *state
+                         assoc
+                         :point-entity 
+                         (->> (gl-text/->text-entity game 
+                                                     font-entity (str point'))
+                              (c/compile game))
+                         :point point'))
+               (c/render game
+                  (-> (t/project point-entity game-width game-height)
+                      (t/scale (:width point-entity) (:height point-entity))
+                      (t/translate 0 0)))))
+      (when gameover
+         (c/render game
+           (-> (t/project gameover-entity game-width game-height)
+               (t/scale (:width gameover-entity)
+                        (:height gameover-entity))
+               (t/translate 0 0))))))
   ;; return the game map
   game)
